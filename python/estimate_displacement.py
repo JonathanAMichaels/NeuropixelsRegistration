@@ -51,7 +51,7 @@ def estimate_displacement(reader, geomarray,
         widths = np.load(os.path.join(working_directory, 'widths.npy'))
     else:
         # spike detection: detection + deduplication
-        spike_output_directory = os.path.join('.', "spikes")
+        spike_output_directory = os.path.join(working_directory, "spikes")  # unified working directory
         if not os.path.exists(spike_output_directory):
             os.makedirs(spike_output_directory)
             
@@ -92,7 +92,6 @@ def estimate_displacement(reader, geomarray,
 
         
     raster = gen_raster(depths, times, amps, geomarray)
-    
     if do_destripe:
         destriped = destripe(raster)
     else:
@@ -102,16 +101,16 @@ def estimate_displacement(reader, geomarray,
         denoised = cheap_anscombe_denoising(destriped)
     else:
         denoised = destriped
-    
     # decentralized registration
     total_shift = decentralized_registration(denoised, 
                                              win_num=reg_win_num,  # change for non-rigid registration
                                              reg_block_num=reg_block_num,  # change for non-rigid registration
                                              iter_num=iteration_num,
                                              vert_smooth=vert_smooth,
-                                             horz_smooth=horz_smooth)
+                                             horz_smooth=horz_smooth,
+                                             working_directory=working_directory)
     
-    np.save('total_shift.npy', total_shift)
+    np.save(working_directory + 'total_shift.npy', total_shift)
     
     return total_shift
 
@@ -129,7 +128,7 @@ def check_raster(reader, geomarray,
              save_raster_info=True):
     
     # spike detection: detection + deduplication
-    spike_output_directory = os.path.join('.', "spikes")
+    spike_output_directory = os.path.join(working_directory, "spikes")
     if not os.path.exists(spike_output_directory):
         os.makedirs(spike_output_directory)
         
@@ -173,7 +172,7 @@ def check_raster(reader, geomarray,
         np.save(os.path.join(raster_info_directory, 'times.npy'), times)
         np.save(os.path.join(raster_info_directory, 'amps.npy'), amps)
         np.save(os.path.join(raster_info_directory, 'widths.npy'), widths)
-        
+
     raster = gen_raster(depths, times, amps, geomarray)
     
     if do_destripe:
@@ -185,14 +184,15 @@ def check_raster(reader, geomarray,
         denoised = cheap_anscombe_denoising(destriped)
     else:
         denoised = destriped
-    
+
     return denoised
 
 
 def register(reader, geomarray, total_shift,
              registration_interp='linear', # also has an option 'gpr'
              reader_type='yass',
-             registration_type='non_rigid'):
+             registration_type='non_rigid',
+             working_directory='./'):
     
     # ts: a raw data batch of size (sampling frequency, n_channels)
     if reader_type == 'yass':
@@ -204,7 +204,7 @@ def register(reader, geomarray, total_shift,
         n_batches = int(os.path.getsize(reader) / second_bytesize)
     
     # register raw data
-    registered_output_directory = os.path.join('.', "registered")
+    registered_output_directory = os.path.join(working_directory, "registered")
     if not os.path.exists(registered_output_directory):
         os.makedirs(registered_output_directory)
         
@@ -414,7 +414,8 @@ def calc_displacement_matrix_raster(raster, nbins=1, disp = 400, step_size = 1, 
     T = raster.shape[0]
     possible_displacement = np.arange(-disp, disp + step_size, step_size)
     raster = torch.from_numpy(raster).cuda().float()
-    c2d = torch.nn.Conv2d(in_channels = 1, out_channels = T, kernel_size = [nbins, raster.shape[-1]], stride = 1, padding = [0, possible_displacement.size//2], bias = False).cuda()
+    c2d = torch.nn.Conv2d(in_channels = 1, out_channels = T, kernel_size = [nbins, raster.shape[-1]], stride = 1,
+                          padding = [0, possible_displacement.size//2], bias = False).cuda().requires_grad_(False)
     c2d.weight[:,0] = raster
     displacement = np.zeros([T, T])
     for i in notebook.tqdm(range(T//batch_size)):
@@ -481,7 +482,8 @@ def save_registered_raster(raster_sh, i, output_directory):
     plt.savefig(fname,bbox_inches='tight')
     plt.close()
     
-def decentralized_registration(raster, win_num=1, reg_block_num=1, iter_num=4, vert_smooth=3, horz_smooth=7):
+def decentralized_registration(raster, win_num=1, reg_block_num=1, iter_num=4, vert_smooth=3, horz_smooth=7,
+                               working_directory='./'):
     D, T = raster.shape
     
     # get windows
@@ -504,7 +506,7 @@ def decentralized_registration(raster, win_num=1, reg_block_num=1, iter_num=4, v
     reg_block_num += 1
     blocks = np.linspace(0, D, reg_block_num, dtype=np.int64)
     
-    output_directory = os.path.join('.', "decentralized_raster")
+    output_directory = os.path.join(working_directory, "decentralized_raster")
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
         
@@ -589,7 +591,11 @@ def register_data_linear(i, reader, registered_output_directory, estimated_displ
     ts = ts.T
     disp = np.concatenate((np.zeros(n_chans)[:,None],estimated_displacement[:,i][:,None]), axis=1)
     ts = griddata(geomarray, ts, geomarray + disp, method = 'linear', fill_value = 0)
+    ts = np.vstack([ts, np.zeros(shape=(1, ts.shape[1]))])  # spikeglx reader doesn't return the sync channel (385),
+    # so I'm adding it back to preserve consistency with kilosort
+    ts = np.round(ts).astype(np.int16)  # To save disk space we convert back to int16 -
+    # at the price of losing some precision
     np.save(os.path.join(
             registered_output_directory,
             "registered_{}.npy".format(
-                str(i).zfill(6))), ts.T.astype(np.float32))
+                str(i).zfill(6))), ts.T.astype(np.int16))  # was float32

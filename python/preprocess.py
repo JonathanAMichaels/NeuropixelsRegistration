@@ -8,10 +8,9 @@ import numpy as np
 import scipy
 from tqdm import tqdm
 import os
+import logging
+from utils import _butterworth, get_std, _standardize
 
-from yass.preprocess.util import _butterworth, get_std, _standardize
-
-from yass.preprocess.util import merge_filtered_files
 
 def preprocess(reader, sampling_rate=30000, 
                apply_filter=True, 
@@ -815,3 +814,19 @@ def adc_shifts(version=1):
     for a in adc:
         sample_shift[adc == a] = np.arange(adc_channels) / adc_channels
     return sample_shift, adc
+
+
+def merge_filtered_files(filtered_location, output_directory):
+    logger = logging.getLogger(__name__)
+
+    filenames = os.listdir(filtered_location)
+    filenames_sorted = sorted(filenames)
+
+    f_out = os.path.join(output_directory, "standardized.bin")
+    logger.info('...saving standardized file: %s', f_out)
+
+    f = open(f_out, 'wb')
+    for fname in filenames_sorted:
+        res = np.load(os.path.join(filtered_location, fname))
+        res.tofile(f)
+        os.remove(os.path.join(filtered_location, fname))

@@ -1,7 +1,7 @@
 # NeuropixelsRegistration
  Motion estimation and registration of Neuropixels data.
  
- Small modifications to python version and added demo notebook
+ Small modifications to python version and added demo notebook.
  To get motion estimates, run python/demo_registration
  
  Input:

@@ -90,7 +90,15 @@ def estimate_displacement(reader, geomarray,
             np.save(os.path.join(raster_info_directory, 'amps.npy'), amps)
             np.save(os.path.join(raster_info_directory, 'widths.npy'), widths)
 
-        
+    # rarely we can get some NaNs
+    if np.sum(np.isnan(times)) > 0:
+        print('We have some NANs. Probably want to look into this')
+        nan_log = np.isnan(times)
+        depths = depths[~nan_log]
+        times = times[~nan_log]
+        amps = amps[~nan_log]
+        widths = widths[~nan_log]
+
     raster = gen_raster(depths, times, amps, geomarray)
     if do_destripe:
         destriped = destripe(raster)
@@ -347,7 +355,6 @@ def gen_raster_info(saved_directory, sf=30000, num_chans=4, delete=True):
 def gen_raster(depths, times, amps, geom):
     max_t = np.ceil(times.max()).astype(int)
     D = geom[:,1].max().astype(int)
-    
     raster = np.zeros((D,max_t))
     raster_count = np.zeros((D,max_t))
     for i in tqdm(range(max_t)):

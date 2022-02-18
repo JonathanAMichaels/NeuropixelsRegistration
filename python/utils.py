@@ -20,11 +20,11 @@ def merge_filtered_files(filtered_location, output_directory, delete=True):
     f_out = os.path.join(output_directory, "standardized.bin")
     f = open(f_out, 'wb')
     for fname in filenames_sorted:
-        if '.ipynb' in fname:
+        if '.ipynb' in fname or 'standardized' in fname:
             continue
         res = np.load(os.path.join(filtered_location, fname)).astype('int16') # was float32
         res.tofile(f)
-        if delete==True:
+        if delete:
             os.remove(os.path.join(filtered_location, fname))
 
 
